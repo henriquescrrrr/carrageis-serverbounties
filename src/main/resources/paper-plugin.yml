@@ -1,0 +1,34 @@
+name: ServerBounties
+version: '${version}'
+main: pt.henrique.serverbounties.ServerBounties
+api-version: "1.21"
+description: Bounty and Hitman contract system with proportional rewards and economy integration.
+author: Henrique
+
+dependencies:
+  server:
+    MultiBank:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    Vault:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    PlayerSettings:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    CombatLOG:
+      load: BEFORE
+      required: false
+      join-classpath: true
+    ServerFactions:
+      load: BEFORE
+      required: false
+      join-classpath: true
+
+# NOTE: paper-plugin.yml does NOT support a permissions: block — it is ignored by the
+# Paper plugin loader. Permission nodes (serverbounties.bounty/.hitman/.admin) are
+# registered at runtime in ServerBounties#registerPermissions().
+

@@ -1,0 +1,253 @@
+language: pt_PT
+debug: false
+
+economy:
+  mode: auto
+  priority: ["MultiBank", "Vault"]
+
+bounty:
+  min-amount: 500
+  max-amount-per-contribution: 1000000
+  max-total-per-target: 10000000
+  tax-rate: 0.10
+  allow-offline-targets: false
+  broadcast-threshold: 5000
+  allow-same-faction: false
+  cancel-blocked-in-combat: true
+
+hitman:
+  stale-negotiation-hours: 24
+  anonymous-broadcast: true
+  hitman-killed-client-percent: 85
+  defaults:
+    min-price: 100000
+    min-hours: 1
+    max-hours: 168
+    max-concurrent: 3
+
+damage-tracking:
+  valid-kill-window-seconds: 300
+  suicide-window-seconds: 150
+  hit-notification-cooldown-seconds: 10
+
+anti-exploit:
+  suspicious-death-threshold: 7
+  suspicious-death-window-minutes: 60
+  reveal-deathchest-coords: true
+
+notifications:
+  bounty-placed-broadcast: true
+  bounty-claimed-broadcast: true
+  target-bossbar: true
+  target-bossbar-color: RED
+  hitman-target-bossbar: true
+  hitman-target-bossbar-color: PURPLE
+
+sounds:
+  bounty-placed: "minecraft:entity.experience_orb.pickup"
+  bounty-claimed: "minecraft:ui.toast.challenge_complete"
+  hit-bounty-target: "minecraft:block.note_block.pling"
+  coords-revealed: "minecraft:entity.elder_guardian.curse"
+  contract-proposed: "minecraft:entity.evoker.prepare_attack"
+  contract-accepted: "minecraft:ui.toast.challenge_complete"
+  contract-completed: "minecraft:ui.toast.challenge_complete"
+  contract-cancelled: "minecraft:block.anvil.land"
+  counter-offer: "minecraft:block.note_block.pling"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# GUI Layout Configuration
+# All sizes must be multiples of 9 (9, 18, 27, 36, 45, 54).
+# Slot numbers are 0-indexed. Change at your own risk — invalid slots will
+# cause items to silently not appear.
+# ─────────────────────────────────────────────────────────────────────────────
+gui:
+  main-menu:
+    size: 45
+    slots:
+      bounty-header: 3
+      bounty-board: 10
+      place-bounty: 12
+      my-bounties: 14
+      hitman-header: 21
+      hitman-board: 28
+      hire-hitman: 30
+      my-contracts: 32
+      hitman-settings: 34
+      close: 40
+
+  bounty-board:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 45
+      next-page: 53
+      back: 49
+      page-info: 50
+
+  bounty-detail:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 46
+      next-page: 53
+      back: 45
+      close: 48
+      total-info: 49
+      page-info: 50
+
+  place-bounty-select:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 45
+      next-page: 53
+      back: 49
+
+  place-bounty-amount:
+    size: 54
+    slots:
+      target-head: 4
+      amount-display: 22
+      dec-100: 19
+      dec-1k: 20
+      dec-10k: 21
+      inc-100: 23
+      inc-1k: 24
+      inc-10k: 25
+      confirm: 40
+      cancel: 38
+      back: 36
+
+  my-bounties:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 45
+      next-page: 53
+      back: 49
+      page-info: 50
+
+  hitman-board:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 45
+      next-page: 53
+      back: 49
+
+  hitman-settings:
+    size: 27
+    slots:
+      toggle-available: 1
+      min-price: 3
+      min-hours: 5
+      max-hours: 7
+      max-concurrent: 12
+      save: 22
+      back: 18
+      close: 26
+
+  hitman-select-target:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 45
+      next-page: 53
+      back: 49
+
+  hitman-select-hitman:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 45
+      next-page: 53
+      back: 49
+
+  hitman-amount:
+    size: 54
+    slots:
+      target-head: 3
+      hitman-head: 5
+      amount-display: 22
+      dec-100: 19
+      dec-1k: 20
+      dec-10k: 21
+      inc-100: 23
+      inc-1k: 24
+      inc-10k: 25
+      confirm: 40
+      cancel: 38
+      back: 36
+
+  hitman-my-contracts:
+    size: 54
+    items-per-page: 45
+    slots:
+      prev-page: 45
+      next-page: 53
+      back: 49
+
+  hitman-active-contract:
+    size: 27
+    slots:
+      target-head: 13
+      client-action: 10
+      hitman-action: 16
+      close: 22
+
+  negotiation:
+    size: 27
+    slots:
+      contract-info: 0
+      target-head: 2
+      current-amount: 4
+      current-hours: 6
+      sender-head: 8
+      accept: 10
+      counter: 12
+      decline: 16
+      back: 22
+
+  counter-offer:
+    size: 27
+    slots:
+      target-head: 4
+      dec-10k: 9
+      dec-1k: 10
+      dec-100: 11
+      amount-display: 12
+      inc-100: 13
+      inc-1k: 14
+      inc-10k: 15
+      dec-24h: 18
+      dec-1h: 19
+      hours-display: 20
+      inc-1h: 21
+      inc-24h: 22
+      send: 24
+      cancel: 26
+
+  rescission:
+    size: 27
+    slots:
+      contract-info: 0
+      client-share: 2
+      slider-display: 4
+      hitman-share: 6
+      dec-10pct: 10
+      dec-5pct: 11
+      percentage-bar: 12
+      inc-5pct: 13
+      inc-10pct: 14
+      back: 18
+      propose-accept: 22
+      decline: 25
+      close: 26
+
+  faction-warning:
+    size: 9
+    slots:
+      warning-item: 2
+      continue: 4
+      cancel: 6
+
