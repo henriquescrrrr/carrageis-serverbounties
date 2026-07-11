@@ -183,7 +183,12 @@ public final class HitmanManager {
         long finalAmount = contract.getCurrentAmount();
         int finalHours = contract.getCurrentHours();
 
-        return economyManager.withdraw(contract.getClientUuid(), finalAmount, "Hitman contract accepted")
+        // Distinguish "client can't afford it" from a real economy failure so the
+        // GUI can show the right message. The withdraw below remains authoritative.
+        return economyManager.getBalanceCents(contract.getClientUuid()).thenCompose(balance -> {
+            if (balance < finalAmount) return done(AcceptResult.CANNOT_AFFORD);
+
+            return economyManager.withdraw(contract.getClientUuid(), finalAmount, "Hitman contract accepted")
                 .thenCompose(success -> {
                     if (!success) return done(AcceptResult.ECONOMY_ERROR);
 
@@ -212,10 +217,11 @@ public final class HitmanManager {
 
                         return AcceptResult.SUCCESS;
                     });
-                }).exceptionally(ex -> {
-                    plugin.getLogger().warning("Error accepting contract " + contractId + ": " + ex.getMessage());
-                    return AcceptResult.ECONOMY_ERROR;
                 });
+        }).exceptionally(ex -> {
+            plugin.getLogger().warning("Error accepting contract " + contractId + ": " + ex.getMessage());
+            return AcceptResult.ECONOMY_ERROR;
+        });
     }
 
     // ── Decline / Cancel (pre-accept) ────────────────────────────────────

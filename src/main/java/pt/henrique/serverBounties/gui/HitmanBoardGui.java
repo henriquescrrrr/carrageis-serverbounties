@@ -81,8 +81,11 @@ public final class HitmanBoardGui {
                         lang.get(viewer, "gui-hitman-board-lore-click")
                 ));
                 head.setItemMeta(meta);
-                // Click → view details (no action yet, just a display board)
-                holder.setItem(i - start, head);
+                // Click → hire this hitman (same flow as /hitman hire <name>):
+                // opens target selection with the hitman pre-selected.
+                final java.util.UUID hitmanUuid = hitman.getUniqueId();
+                holder.setItem(i - start, head,
+                        p -> HitmanGui.openSelectTarget(p, 0, hitmanUuid));
             }
         }
 

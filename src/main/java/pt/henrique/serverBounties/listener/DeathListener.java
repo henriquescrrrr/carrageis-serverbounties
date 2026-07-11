@@ -26,7 +26,8 @@ import java.util.*;
  * 1. Determine valid killer(s) — combat tag + damage history
  * 2. Validate each killer — remove same-faction and self-damage
  * 3. Process BOUNTY — proportional distribution or suspicious death
- * 4. Process HITMAN CONTRACTS — (stubs for Part B)
+ * 4. Process HITMAN CONTRACTS — complete/cancel contracts on the target
+ * 5. Process HITMAN DEATH — target killed the hitman (partial refund + reward)
  */
 public final class DeathListener implements Listener {
 

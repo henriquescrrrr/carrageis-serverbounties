@@ -149,7 +149,10 @@ public final class NegotiationGui {
                     hitmanMgr.acceptContract(cId, p.getUniqueId())
                             .thenAccept(result -> Bukkit.getScheduler().runTask(plugin, () -> {
                                 switch (result) {
-                                    case SUCCESS -> p.sendMessage(lang.get(p, "hitman-contract-accepted"));
+                                    // On SUCCESS both parties are already notified by
+                                    // NotificationManager#notifyHitmanContractAccepted
+                                    // (called from HitmanManager#acceptContract).
+                                    case SUCCESS -> {}
                                     case CANNOT_AFFORD -> p.sendMessage(lang.get(p, "hitman-cant-afford",
                                             "amount", econ.formatCurrency(amount),
                                             "balance", econ.formatCurrency(clientBalance)));
@@ -187,8 +190,14 @@ public final class NegotiationGui {
             holder.setItem(gc.getSlot("negotiation", "decline"), decline, p -> {
                 p.closeInventory();
                 HitmanManager hitmanMgr = plugin.getHitmanManager();
-                hitmanMgr.declineContract(cId, p.getUniqueId());
-                p.sendMessage(lang.get(p, "hitman-contract-declined"));
+                hitmanMgr.declineContract(cId, p.getUniqueId())
+                        .thenAccept(ok -> Bukkit.getScheduler().runTask(plugin, () -> {
+                            if (ok) {
+                                p.sendMessage(lang.get(p, "hitman-contract-declined"));
+                            } else {
+                                p.sendMessage(lang.get(p, "hitman-no-contracts"));
+                            }
+                        }));
             });
         }
 

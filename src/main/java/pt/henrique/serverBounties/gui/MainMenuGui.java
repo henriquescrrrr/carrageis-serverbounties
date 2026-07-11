@@ -118,7 +118,8 @@ public final class MainMenuGui {
         List<Component> mcLore = new ArrayList<>();
         mcLore.add(lang.get(viewer, "gui-btn-my-contracts-lore"));
         if (activeOrPending > 0) {
-            mcLore.add(Component.text("§7Active/Pending: §f" + activeOrPending));
+            mcLore.add(lang.get(viewer, "gui-btn-my-contracts-active",
+                    "count", String.valueOf(activeOrPending)));
         }
         mcMeta.lore(mcLore);
         myContracts.setItemMeta(mcMeta);

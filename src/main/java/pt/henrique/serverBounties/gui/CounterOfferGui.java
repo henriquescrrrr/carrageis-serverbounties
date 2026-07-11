@@ -120,10 +120,24 @@ public final class CounterOfferGui {
         ItemMeta sendMeta = send.getItemMeta();
         sendMeta.displayName(lang.get(viewer, "gui-counter-send"));
         send.setItemMeta(sendMeta);
+        final long sendAmount = amount;
+        final int sendHours = hours;
         holder.setItem(gc.getSlot("counter-offer", "send"), send, p -> {
             p.closeInventory();
-            hitmanMgr.counterOffer(contractId, p.getUniqueId(), amount, hours);
-            p.sendMessage(lang.get(p, "hitman-counter-sent"));
+            hitmanMgr.counterOffer(contractId, p.getUniqueId(), sendAmount, sendHours)
+                    .thenAccept(ok -> Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (ok) {
+                            p.sendMessage(lang.get(p, "gui-counter-sent",
+                                    "amount", econ.formatCurrency(sendAmount),
+                                    "hours", String.valueOf(sendHours)));
+                            HitmanContract updated = hitmanMgr.getContractById(contractId);
+                            if (updated != null) {
+                                plugin.getNotificationManager().notifyCounterOffer(updated, p.getUniqueId());
+                            }
+                        } else {
+                            p.sendMessage(lang.get(p, "hitman-counter-failed"));
+                        }
+                    }));
         });
 
         // Cancel

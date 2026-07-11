@@ -161,7 +161,6 @@ public final class PlaceBountyGui {
 
         // Amount adjustment buttons with shift support
         final long amt = currentAmount;
-        BiConsumer<Player, ClickType> makeAdjuster = (delta, shiftDelta) -> {};
         // Decrease buttons
         setAdjustButton(holder, gc.getSlot("place-bounty-amount", "dec-100"),
                 Material.RED_STAINED_GLASS_PANE, "§c-100", "§7Shift: -1,000",

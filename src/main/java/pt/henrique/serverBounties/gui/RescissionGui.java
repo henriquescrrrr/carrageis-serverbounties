@@ -146,44 +146,100 @@ public final class RescissionGui {
         backMeta.displayName(lang.get(viewer, "gui-back"));
         back.setItemMeta(backMeta);
         holder.setItem(gc.getSlot("rescission", "back"), back,
-                p -> HitmanGui.openActiveContract(p));
+                p -> HitmanGui.openActiveContract(p, contractId));
 
-        // Propose / Accept
+        // Propose / Accept / Counter.
+        // When responding to the other party's proposal: accepting with the slider on
+        // the PROPOSED split accepts it; moving the slider first sends a COUNTER-proposal
+        // (never a blind accept of a split different from what the button shows).
         final int finalClientPercent = clientPercent;
-        final int finalHitmanPercent = hitmanPercent;
-        ItemStack action = new ItemStack(Material.GREEN_WOOL);
-        ItemMeta actionMeta = action.getItemMeta();
-        if (isRespondingToOther) {
-            actionMeta.displayName(lang.get(viewer, "gui-rescission-accept",
-                    "client_percent", String.valueOf(clientPercent),
-                    "hitman_percent", String.valueOf(hitmanPercent)));
-        } else {
-            actionMeta.displayName(lang.get(viewer, "gui-rescission-propose",
-                    "client_percent", String.valueOf(clientPercent),
-                    "hitman_percent", String.valueOf(hitmanPercent)));
-        }
-        action.setItemMeta(actionMeta);
+        final int proposedPercent = contract.getRescissionClientPercent();
         final boolean responding = isRespondingToOther;
-        holder.setItem(gc.getSlot("rescission", "propose-accept"), action, p -> {
-            p.closeInventory();
-            if (responding) {
-                hitmanMgr.acceptRescission(contractId, p.getUniqueId());
-                p.sendMessage(lang.get(p, "hitman-rescission-accepted"));
-            } else {
-                hitmanMgr.requestRescission(contractId, p.getUniqueId(), finalClientPercent);
-                p.sendMessage(lang.get(p, "hitman-rescission-proposed"));
-            }
-        });
+        final boolean isCounter = responding && finalClientPercent != proposedPercent;
 
-        // Decline
+        // While the viewer's OWN proposal is pending, there is nothing to propose or
+        // accept — requestRescission would reject a duplicate. Only Decline (withdraw
+        // the proposal) and Close are shown in that state.
+        boolean canAct = !contract.isRescissionPending() || responding;
+        if (canAct) {
+            ItemStack action = new ItemStack(Material.GREEN_WOOL);
+            ItemMeta actionMeta = action.getItemMeta();
+            String actionKey = (responding && !isCounter) ? "gui-rescission-accept" : "gui-rescission-propose";
+            actionMeta.displayName(lang.get(viewer, actionKey,
+                    "client_percent", String.valueOf(clientPercent),
+                    "hitman_percent", String.valueOf(hitmanPercent)));
+            action.setItemMeta(actionMeta);
+            holder.setItem(gc.getSlot("rescission", "propose-accept"), action, p -> {
+                p.closeInventory();
+                if (responding && !isCounter) {
+                    // Accept the proposed split exactly as displayed.
+                    hitmanMgr.acceptRescission(contractId, p.getUniqueId())
+                            .thenAccept(ok -> Bukkit.getScheduler().runTask(plugin, () -> {
+                                if (ok) {
+                                    // Contract left the cache on success — compute the accepter's share.
+                                    long cShare = totalAmount * proposedPercent / 100;
+                                    long myShare = p.getUniqueId().equals(contract.getClientUuid())
+                                            ? cShare : totalAmount - cShare;
+                                    p.sendMessage(lang.get(p, "hitman-rescission-accepted",
+                                            "amount", econ.formatCurrency(myShare)));
+                                } else {
+                                    p.sendMessage(lang.get(p, "hitman-no-contracts"));
+                                }
+                            }));
+                } else if (isCounter) {
+                    // Slider moved while responding → counter-proposal, not an accept.
+                    hitmanMgr.counterRescission(contractId, p.getUniqueId(), finalClientPercent)
+                            .thenAccept(ok -> Bukkit.getScheduler().runTask(plugin, () -> {
+                                if (ok) {
+                                    p.sendMessage(lang.get(p, "gui-rescission-counter-sent",
+                                            "client_percent", String.valueOf(finalClientPercent),
+                                            "hitman_percent", String.valueOf(100 - finalClientPercent)));
+                                    HitmanContract updated = hitmanMgr.getContractById(contractId);
+                                    if (updated != null) {
+                                        plugin.getNotificationManager().notifyRescissionProposed(updated);
+                                    }
+                                } else {
+                                    p.sendMessage(lang.get(p, "hitman-no-contracts"));
+                                }
+                            }));
+                } else {
+                    hitmanMgr.requestRescission(contractId, p.getUniqueId(), finalClientPercent)
+                            .thenAccept(ok -> Bukkit.getScheduler().runTask(plugin, () -> {
+                                if (ok) {
+                                    p.sendMessage(lang.get(p, "gui-rescission-proposed-sent",
+                                            "client_percent", String.valueOf(finalClientPercent),
+                                            "hitman_percent", String.valueOf(100 - finalClientPercent)));
+                                    HitmanContract updated = hitmanMgr.getContractById(contractId);
+                                    if (updated != null) {
+                                        plugin.getNotificationManager().notifyRescissionProposed(updated);
+                                    }
+                                } else {
+                                    p.sendMessage(lang.get(p, "hitman-no-contracts"));
+                                }
+                            }));
+                }
+            });
+        }
+
+        // Decline (only meaningful while a rescission is pending)
         ItemStack decline = new ItemStack(Material.RED_WOOL);
         ItemMeta declineMeta = decline.getItemMeta();
         declineMeta.displayName(lang.get(viewer, "gui-rescission-decline"));
         decline.setItemMeta(declineMeta);
         holder.setItem(gc.getSlot("rescission", "decline"), decline, p -> {
             p.closeInventory();
-            hitmanMgr.declineRescission(contractId, p.getUniqueId());
-            p.sendMessage(lang.get(p, "hitman-rescission-declined"));
+            hitmanMgr.declineRescission(contractId, p.getUniqueId())
+                    .thenAccept(ok -> Bukkit.getScheduler().runTask(plugin, () -> {
+                        if (ok) {
+                            p.sendMessage(lang.get(p, "hitman-rescission-declined"));
+                            HitmanContract updated = hitmanMgr.getContractById(contractId);
+                            if (updated != null) {
+                                plugin.getNotificationManager().notifyRescissionDeclined(updated, p.getUniqueId());
+                            }
+                        } else {
+                            p.sendMessage(lang.get(p, "hitman-no-contracts"));
+                        }
+                    }));
         });
 
         // Close

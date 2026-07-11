@@ -414,7 +414,7 @@ public final class HitmanGui {
                 if (isNegotiating) {
                     NegotiationGui.open(p, contractId);
                 } else if (isActive) {
-                    openActiveContract(p);
+                    openActiveContract(p, contractId);
                 }
             });
         }
@@ -453,6 +453,15 @@ public final class HitmanGui {
     // ── Active Contract (detail view) ───────────────────────────────────
 
     public static void openActiveContract(Player viewer) {
+        openActiveContract(viewer, -1);
+    }
+
+    /**
+     * Open the active contract detail view. If {@code contractId >= 0} that specific
+     * contract is shown (the viewer must be a participant); otherwise the viewer's
+     * first active contract is used.
+     */
+    public static void openActiveContract(Player viewer, int contractId) {
         ServerBounties plugin = ServerBounties.getInstance();
         LangManager lang = plugin.getLangManager();
         GuiConfig gc = plugin.getGuiConfig();
@@ -461,20 +470,29 @@ public final class HitmanGui {
 
         UUID viewerUuid = viewer.getUniqueId();
 
-        List<HitmanContract> active = hitmanMgr.getActiveContractsForHitman(viewerUuid);
-        boolean isHitman = !active.isEmpty();
-        if (active.isEmpty()) {
-            active = hitmanMgr.getContractsForClient(viewerUuid).stream()
-                    .filter(c -> c.getStatus().isActive())
-                    .collect(Collectors.toList());
+        HitmanContract contract = null;
+        if (contractId >= 0) {
+            HitmanContract byId = hitmanMgr.getContractById(contractId);
+            if (byId != null && byId.getStatus().isActive()
+                    && (viewerUuid.equals(byId.getClientUuid()) || viewerUuid.equals(byId.getHitmanUuid()))) {
+                contract = byId;
+            }
         }
-        if (active.isEmpty()) {
-            viewer.sendMessage(lang.get(viewer, "hitman-no-contracts"));
-            return;
+        if (contract == null) {
+            List<HitmanContract> active = hitmanMgr.getActiveContractsForHitman(viewerUuid);
+            if (active.isEmpty()) {
+                active = hitmanMgr.getContractsForClient(viewerUuid).stream()
+                        .filter(c -> c.getStatus().isActive())
+                        .collect(Collectors.toList());
+            }
+            if (active.isEmpty()) {
+                viewer.sendMessage(lang.get(viewer, "hitman-no-contracts"));
+                return;
+            }
+            contract = active.get(0);
         }
 
-        HitmanContract contract = active.get(0);
-        isHitman = viewerUuid.equals(contract.getHitmanUuid());
+        boolean isHitman = viewerUuid.equals(contract.getHitmanUuid());
         boolean isClient = viewerUuid.equals(contract.getClientUuid());
 
         int size = gc.getSize("hitman-active-contract");
@@ -567,7 +585,10 @@ public final class HitmanGui {
         FactionsHook factions = plugin.getFactionsHook();
 
         HitmanSettings settings = hitmanMgr.getSettings(hitmanUuid);
-        int hours = Math.max(settings.getMinHours(), 24);
+        // Default proposal duration is 24h, clamped into the hitman's accepted
+        // [minHours, maxHours] range — otherwise a hitman with maxHours < 24 could
+        // never be hired (createProposal would reject every proposal as INVALID_HOURS).
+        int hours = Math.min(Math.max(24, settings.getMinHours()), settings.getMaxHours());
 
         if (factions.isAvailable() && factions.areInSameFaction(hitmanUuid, targetUuid)) {
             FactionWarningGui.open(viewer, hitmanUuid, targetUuid, amountCents, hours);
@@ -594,7 +615,7 @@ public final class HitmanGui {
                                     viewer.getUniqueId(), hitmanUuid, targetUuid, amountCents, hours);
                         }
                         case SELF_TARGET -> viewer.sendMessage(lang.get(viewer, "hitman-self-target"));
-                        case SELF_HIRE -> viewer.sendMessage(lang.get(viewer, "hitman-self-hitman"));
+                        case SELF_HIRE -> viewer.sendMessage(lang.get(viewer, "hitman-self-hire"));
                         case HITMAN_IS_TARGET -> viewer.sendMessage(lang.get(viewer, "hitman-hitman-is-target"));
                         case SAME_FACTION -> viewer.sendMessage(lang.get(viewer, "hitman-same-faction"));
                         case BELOW_MIN_PRICE -> viewer.sendMessage(lang.get(viewer, "hitman-below-min-price",

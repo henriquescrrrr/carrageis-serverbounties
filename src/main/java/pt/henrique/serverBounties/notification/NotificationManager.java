@@ -671,6 +671,56 @@ public final class NotificationManager {
         refreshHitmanBossBar(contract.getTargetUuid());
     }
 
+    // ── Negotiation Notifications (counter-offer / rescission) ───────────
+
+    /**
+     * Notify the party that now has to respond after a counter-offer was sent.
+     * Called from CounterOfferGui on the main thread after a successful counter.
+     */
+    public void notifyCounterOffer(HitmanContract contract, UUID sentBy) {
+        UUID otherUuid = sentBy.equals(contract.getHitmanUuid())
+                ? contract.getClientUuid()
+                : contract.getHitmanUuid();
+        Player other = Bukkit.getPlayer(otherUuid);
+        if (other != null && other.isOnline()) {
+            other.sendMessage(langManager.get(other, "hitman-counter-offer",
+                    "amount", economyManager.formatCurrency(contract.getCurrentAmount()),
+                    "hours", String.valueOf(contract.getCurrentHours())));
+            playSound(other, configManager.getSoundCounterOffer());
+        }
+    }
+
+    /**
+     * Notify the party that has to respond to a rescission proposal/counter-proposal.
+     * The responder is the participant who did NOT propose the current split.
+     */
+    public void notifyRescissionProposed(HitmanContract contract) {
+        UUID responderUuid = "CLIENT".equals(contract.getRescissionProposedBy())
+                ? contract.getHitmanUuid()
+                : contract.getClientUuid();
+        Player responder = Bukkit.getPlayer(responderUuid);
+        if (responder != null && responder.isOnline()) {
+            int clientPct = contract.getRescissionClientPercent();
+            responder.sendMessage(langManager.get(responder, "hitman-rescission-proposed",
+                    "client_percent", String.valueOf(clientPct),
+                    "hitman_percent", String.valueOf(100 - clientPct)));
+            playSound(responder, configManager.getSoundCounterOffer());
+        }
+    }
+
+    /**
+     * Notify the other participant that a rescission request was declined.
+     */
+    public void notifyRescissionDeclined(HitmanContract contract, UUID declinedBy) {
+        UUID otherUuid = declinedBy.equals(contract.getHitmanUuid())
+                ? contract.getClientUuid()
+                : contract.getHitmanUuid();
+        Player other = Bukkit.getPlayer(otherUuid);
+        if (other != null && other.isOnline()) {
+            other.sendMessage(langManager.get(other, "hitman-rescission-declined"));
+        }
+    }
+
     // ── Anonymous Broadcast ──────────────────────────────────────────────
 
     /**
