@@ -1,5 +1,6 @@
 package pt.henrique.serverbounties.hook;
 
+import org.bukkit.Bukkit;
 import pt.henrique.serverbounties.ServerBounties;
 
 import java.lang.reflect.Method;
@@ -7,7 +8,8 @@ import java.util.UUID;
 
 /**
  * Hook into CombatLOG API via reflection.
- * API class: pt.henrique.combatlog.api.CombatLogApi
+ * API class: pt.henrique.combatlog.api.CombatLogApi, published by CombatLOG in the
+ * Bukkit ServicesManager.
  */
 public final class CombatLogHook {
 
@@ -16,7 +18,7 @@ public final class CombatLogHook {
     private boolean available;
     private Object apiInstance;
     private Method isInCombatMethod;
-    private Method getAttackerMethod;
+    private Method getLastOpponentMethod;
 
     public CombatLogHook(ServerBounties plugin) {
         this.plugin = plugin;
@@ -26,11 +28,20 @@ public final class CombatLogHook {
 
     private void init() {
         try {
+            if (Bukkit.getPluginManager().getPlugin("CombatLOG") == null) {
+                plugin.debug("CombatLOG not installed.");
+                return;
+            }
+
             Class<?> apiClass = Class.forName("pt.henrique.combatlog.api.CombatLogApi");
-            Method getInstanceMethod = apiClass.getMethod("getInstance");
-            this.apiInstance = getInstanceMethod.invoke(null);
+            var registration = Bukkit.getServicesManager().getRegistration(apiClass);
+            if (registration == null || registration.getProvider() == null) {
+                plugin.debug("CombatLOG API not registered in ServicesManager.");
+                return;
+            }
+            this.apiInstance = registration.getProvider();
             this.isInCombatMethod = apiClass.getMethod("isInCombat", UUID.class);
-            this.getAttackerMethod = apiClass.getMethod("getAttacker", UUID.class);
+            this.getLastOpponentMethod = apiClass.getMethod("getLastOpponent", UUID.class);
             this.available = true;
             plugin.debug("CombatLogHook initialized.");
         } catch (ClassNotFoundException e) {
@@ -67,7 +78,7 @@ public final class CombatLogHook {
         if (!available || apiInstance == null) return null;
 
         try {
-            Object result = getAttackerMethod.invoke(apiInstance, playerUuid);
+            Object result = getLastOpponentMethod.invoke(apiInstance, playerUuid);
             if (result instanceof UUID uuid) {
                 return uuid;
             }

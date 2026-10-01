@@ -250,16 +250,38 @@ public final class HitmanManager {
         long amount = contract.getCurrentAmount();
         removeFromCache(contract);
 
-        return databaseManager.updateContract(contract)
-                .thenCompose(ok -> economyManager.deposit(contract.getHitmanUuid(), amount,
-                        "Hitman contract completed — killed " + contract.getTargetUuid()))
-                .thenApply(deposited -> {
+        return settle(contract, () -> economyManager
+                .deposit(contract.getHitmanUuid(), amount,
+                        "Hitman contract completed — killed " + contract.getTargetUuid())
+                .thenAccept(deposited -> {
                     if (!deposited) {
                         plugin.getLogger().warning("Failed to pay hitman " + contract.getHitmanUuid()
                                 + " prize of " + amount + " for contract " + contract.getId());
                     }
-                    return true;
-                });
+                }));
+    }
+
+    /**
+     * Persists the contract's terminal status, then runs {@code payouts} only if that
+     * write succeeded.
+     *
+     * <p>{@code tryTerminate} makes the transition atomic within one server run, but the
+     * escrow is only released once. If the row is still ACCEPTED in the database, the next
+     * start reloads the contract through {@code loadAllNonTerminalContracts} and it becomes
+     * payable again — so paying before the status is durable hands out the escrow twice.
+     * Withholding leaves the money with the plugin and the contract settleable later.
+     */
+    private CompletableFuture<Boolean> settle(HitmanContract contract,
+                                              java.util.function.Supplier<CompletableFuture<Void>> payouts) {
+        return databaseManager.updateContract(contract).thenCompose(ok -> {
+            if (!ok) {
+                plugin.getLogger().warning("Contract " + contract.getId() + " could not be marked "
+                        + contract.getStatus() + " in the database. Payout withheld — the contract"
+                        + " is still ACCEPTED on disk and would otherwise pay out twice.");
+                return done(false);
+            }
+            return payouts.get().thenApply(v -> true);
+        });
     }
 
     // ── Cancel: someone else killed target (100% refund client) ──────────
@@ -271,16 +293,14 @@ public final class HitmanManager {
         long amount = contract.getCurrentAmount();
         removeFromCache(contract);
 
-        return databaseManager.updateContract(contract)
-                .thenCompose(ok -> economyManager.deposit(contract.getClientUuid(), amount,
-                        "Hitman target died — full refund"))
-                .thenApply(deposited -> {
+        return settle(contract, () -> economyManager
+                .deposit(contract.getClientUuid(), amount, "Hitman target died — full refund")
+                .thenAccept(deposited -> {
                     if (!deposited) {
                         plugin.getLogger().warning("Failed to refund client " + contract.getClientUuid()
                                 + " for contract " + contract.getId());
                     }
-                    return true;
-                });
+                }));
     }
 
     // ── Target killed the hitman (85% client / 15% target) ───────────────
@@ -296,13 +316,11 @@ public final class HitmanManager {
 
         removeFromCache(contract);
 
-        CompletableFuture<Boolean> dbFuture = databaseManager.updateContract(contract);
-        CompletableFuture<Boolean> clientFuture = economyManager.deposit(contract.getClientUuid(), clientRefund,
-                "Hitman killed — partial refund (" + clientPct + "%)");
-        CompletableFuture<Boolean> targetFuture = economyManager.deposit(contract.getTargetUuid(), targetReward,
-                "Killed a hitman hunting you");
-
-        return CompletableFuture.allOf(dbFuture, clientFuture, targetFuture).thenApply(v -> true);
+        return settle(contract, () -> CompletableFuture.allOf(
+                economyManager.deposit(contract.getClientUuid(), clientRefund,
+                        "Hitman killed — partial refund (" + clientPct + "%)"),
+                economyManager.deposit(contract.getTargetUuid(), targetReward,
+                        "Killed a hitman hunting you")));
     }
 
     // ── Expire Contract (timer ran out → 100% refund client) ─────────────
@@ -315,10 +333,14 @@ public final class HitmanManager {
         long amount = contract.getCurrentAmount();
         removeFromCache(contract);
 
-        return databaseManager.updateContract(contract)
-                .thenCompose(ok -> economyManager.deposit(contract.getClientUuid(), amount,
-                        "Hitman contract expired — full refund"))
-                .thenApply(deposited -> true);
+        return settle(contract, () -> economyManager
+                .deposit(contract.getClientUuid(), amount, "Hitman contract expired — full refund")
+                .thenAccept(deposited -> {
+                    if (!deposited) {
+                        plugin.getLogger().warning("Failed to refund client " + contract.getClientUuid()
+                                + " on expiry of contract " + contract.getId());
+                    }
+                }));
     }
 
     // ── Rescission (active contract cancellation negotiation) ─────────────
@@ -372,13 +394,11 @@ public final class HitmanManager {
         if (!contract.tryTerminate(ContractStatus.CANCELLED_RESCISSION)) return done(false);
         removeFromCache(contract);
 
-        CompletableFuture<Boolean> dbFuture = databaseManager.updateContract(contract);
-        CompletableFuture<Boolean> clientFuture = economyManager.deposit(contract.getClientUuid(), clientShare,
-                "Contract rescission — " + clientPct + "% refund");
-        CompletableFuture<Boolean> hitmanFuture = economyManager.deposit(contract.getHitmanUuid(), hitmanShare,
-                "Contract rescission fee — " + (100 - clientPct) + "%");
-
-        return CompletableFuture.allOf(dbFuture, clientFuture, hitmanFuture).thenApply(v -> true);
+        return settle(contract, () -> CompletableFuture.allOf(
+                economyManager.deposit(contract.getClientUuid(), clientShare,
+                        "Contract rescission — " + clientPct + "% refund"),
+                economyManager.deposit(contract.getHitmanUuid(), hitmanShare,
+                        "Contract rescission fee — " + (100 - clientPct) + "%")));
     }
 
     public CompletableFuture<Boolean> declineRescission(int contractId, UUID declinedBy) {

@@ -1,5 +1,6 @@
 package pt.henrique.serverbounties.hook;
 
+import org.bukkit.Bukkit;
 import pt.henrique.serverbounties.ServerBounties;
 
 import java.lang.reflect.Method;
@@ -7,7 +8,8 @@ import java.util.UUID;
 
 /**
  * Hook into ServerFactions API via reflection.
- * API class: pt.henrique.serverfactions.api.ServerFactionsApi
+ * API class: pt.henrique.serverfactions.api.ServerFactionsApi, published by
+ * ServerFactions in the Bukkit ServicesManager.
  */
 public final class FactionsHook {
 
@@ -25,9 +27,18 @@ public final class FactionsHook {
 
     private void init() {
         try {
+            if (Bukkit.getPluginManager().getPlugin("ServerFactions") == null) {
+                plugin.debug("ServerFactions not installed.");
+                return;
+            }
+
             Class<?> apiClass = Class.forName("pt.henrique.serverfactions.api.ServerFactionsApi");
-            Method getInstanceMethod = apiClass.getMethod("getInstance");
-            this.apiInstance = getInstanceMethod.invoke(null);
+            var registration = Bukkit.getServicesManager().getRegistration(apiClass);
+            if (registration == null || registration.getProvider() == null) {
+                plugin.debug("ServerFactions API not registered in ServicesManager.");
+                return;
+            }
+            this.apiInstance = registration.getProvider();
             this.areInSameFactionMethod = apiClass.getMethod("areInSameFaction", UUID.class, UUID.class);
             this.available = true;
             plugin.debug("FactionsHook initialized.");

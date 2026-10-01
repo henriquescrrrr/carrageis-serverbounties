@@ -216,9 +216,14 @@ public final class BountyManager {
             return CompletableFuture.completedFuture(Collections.emptyMap());
         }
 
-        // Calculate per-killer payouts
+        // Calculate per-killer payouts.
+        // `remaining` is the invariant: the sum of the payouts can never exceed the pot.
+        // Rounding each share independently does not hold that — with a small pot and
+        // several attackers, n-1 rounded shares can already add up to more than the total,
+        // and the last killer's "remainder" then goes negative and is silently dropped,
+        // leaving more money paid out than was ever escrowed.
         Map<UUID, Long> payouts = new HashMap<>();
-        long distributed = 0;
+        long remaining = totalBounty;
 
         List<Map.Entry<UUID, Double>> sortedKillers = new ArrayList<>(damageDistribution.entrySet());
         sortedKillers.sort(Map.Entry.<UUID, Double>comparingByValue().reversed());
@@ -227,40 +232,47 @@ public final class BountyManager {
             Map.Entry<UUID, Double> killer = sortedKillers.get(i);
             long payout;
             if (i == sortedKillers.size() - 1) {
-                // Last killer gets the remainder to avoid rounding issues
-                payout = totalBounty - distributed;
+                // Last killer gets the remainder, so the pot is fully distributed.
+                payout = remaining;
             } else {
-                payout = Math.round(totalBounty * killer.getValue());
+                payout = Math.min(remaining, Math.round(totalBounty * killer.getValue()));
             }
             if (payout > 0) {
                 payouts.put(killer.getKey(), payout);
-                distributed += payout;
+                remaining -= payout;
             }
         }
 
-        // Delete all entries from DB
-        CompletableFuture<Boolean> dbDelete = databaseManager.deleteAllBountyEntries(target);
+        // Pay only once the entries are gone from the database. Firing the deposits in
+        // parallel with the delete means a failed delete leaves the rows in SQLite: the
+        // next loadCache() resurrects the same bounty and it can be claimed a second time.
+        // cancelContribution already gates its refund on the delete the same way.
+        return databaseManager.deleteAllBountyEntries(target).thenCompose(deleted -> {
+            if (!deleted) {
+                // Put the entries back so the cache still matches the database.
+                cache.put(target, Collections.synchronizedList(new ArrayList<>(removed)));
+                plugin.getLogger().warning("Bounty claim aborted for " + target
+                        + ": could not delete the bounty entries. No payout was made.");
+                return CompletableFuture.completedFuture(Collections.<UUID, Long>emptyMap());
+            }
 
-        // Deposit to each killer (independent async operations)
-        List<CompletableFuture<Void>> deposits = new ArrayList<>();
-        for (Map.Entry<UUID, Long> payout : payouts.entrySet()) {
-            deposits.add(
-                    economyManager.deposit(payout.getKey(), payout.getValue(),
-                            "Bounty claim for killing " + target)
-                            .thenAccept(success -> {
-                                if (!success) {
-                                    plugin.getLogger().warning("Failed to deposit bounty payout of "
-                                            + payout.getValue() + " to " + payout.getKey());
-                                }
-                            })
-            );
-        }
+            List<CompletableFuture<Void>> deposits = new ArrayList<>();
+            for (Map.Entry<UUID, Long> payout : payouts.entrySet()) {
+                deposits.add(
+                        economyManager.deposit(payout.getKey(), payout.getValue(),
+                                "Bounty claim for killing " + target)
+                                .thenAccept(success -> {
+                                    if (!success) {
+                                        plugin.getLogger().warning("Failed to deposit bounty payout of "
+                                                + payout.getValue() + " to " + payout.getKey());
+                                    }
+                                })
+                );
+            }
 
-        // Wait for all deposits and the DB delete
-        return CompletableFuture.allOf(
-                dbDelete.thenAccept(v -> {}),
-                CompletableFuture.allOf(deposits.toArray(new CompletableFuture[0]))
-        ).thenApply(v -> payouts).exceptionally(ex -> {
+            return CompletableFuture.allOf(deposits.toArray(new CompletableFuture[0]))
+                    .thenApply(v -> payouts);
+        }).exceptionally(ex -> {
             plugin.getLogger().warning("Error distributing bounty: " + ex.getMessage());
             return payouts; // Return whatever we calculated, deposits may have partially succeeded
         });

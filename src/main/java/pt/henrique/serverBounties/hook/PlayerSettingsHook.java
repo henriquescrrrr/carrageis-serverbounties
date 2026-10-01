@@ -10,9 +10,7 @@ import java.util.UUID;
 /**
  * Hook into PlayerSettings API via reflection.
  * <p>
- * Access pattern: Bukkit plugin manager → PlayerSettings plugin instance
- * → getSettingsProvider() → PlayerSettingsProvider (implements PlayerSettingsApi)
- * → getLanguage(UUID).
+ * Access pattern: ServicesManager → PlayerSettingsApi provider → getLanguage(UUID).
  */
 public final class PlayerSettingsHook {
 
@@ -37,19 +35,22 @@ public final class PlayerSettingsHook {
                 return;
             }
 
-            // 2. Get the provider via getSettingsProvider()
-            Method getProviderMethod = psPlugin.getClass().getMethod("getSettingsProvider");
-            this.providerInstance = getProviderMethod.invoke(psPlugin);
-            if (this.providerInstance == null) {
-                plugin.debug("PlayerSettings getSettingsProvider() returned null.");
+            // 2. Get the provider registered by PlayerSettings in the ServicesManager
+            Class<?> apiClass = Class.forName("pt.henrique.playersettings.api.PlayerSettingsApi");
+            var registration = Bukkit.getServicesManager().getRegistration(apiClass);
+            if (registration == null || registration.getProvider() == null) {
+                plugin.debug("PlayerSettings API not registered in ServicesManager.");
                 return;
             }
+            this.providerInstance = registration.getProvider();
 
-            // 3. Resolve getLanguage(UUID) on the provider
-            this.getLanguageMethod = this.providerInstance.getClass().getMethod("getLanguage", UUID.class);
+            // 3. Resolve getLanguage(UUID) on the API interface
+            this.getLanguageMethod = apiClass.getMethod("getLanguage", UUID.class);
 
             this.available = true;
             plugin.getLogger().info("PlayerSettings hook initialized successfully.");
+        } catch (ClassNotFoundException e) {
+            plugin.debug("PlayerSettings API not found on classpath.");
         } catch (NoSuchMethodException e) {
             plugin.debug("PlayerSettings API method not found: " + e.getMessage());
         } catch (Exception e) {

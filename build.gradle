@@ -1,11 +1,11 @@
 plugins {
     id 'java'
     id("xyz.jpenilla.run-paper") version "2.3.1"
-    id("com.gradleup.shadow") version "9.0.0-beta12"
+    id("com.gradleup.shadow") version "9.6.1"
 }
 
 group = 'pt.henrique.serverbounties'
-version = '1.0.0'
+version = "2.1.0"
 
 repositories {
     mavenCentral()
@@ -20,13 +20,13 @@ repositories {
 }
 
 dependencies {
-    compileOnly("io.papermc.paper:paper-api:1.21.4-R0.1-SNAPSHOT")
+    compileOnly("io.papermc.paper:paper-api:26.3.build.140-beta")
     compileOnly("com.github.MilkBowl:VaultAPI:1.7.1")
 }
 
 tasks {
     runServer {
-        minecraftVersion("1.21.4")
+        minecraftVersion("26.3")
     }
 
     shadowJar {
@@ -38,7 +38,7 @@ tasks {
     }
 }
 
-def targetJavaVersion = 21
+def targetJavaVersion = 25
 java {
     def javaVersion = JavaVersion.toVersion(targetJavaVersion)
     sourceCompatibility = javaVersion

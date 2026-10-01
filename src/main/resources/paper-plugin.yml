@@ -1,7 +1,7 @@
 name: ServerBounties
 version: '${version}'
 main: pt.henrique.serverbounties.ServerBounties
-api-version: "1.21"
+api-version: "26.3"
 description: Bounty and Hitman contract system with proportional rewards and economy integration.
 author: Henrique
 

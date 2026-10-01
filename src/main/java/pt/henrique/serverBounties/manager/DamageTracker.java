@@ -36,7 +36,10 @@ public final class DamageTracker {
      * Called from EntityDamageByEntityEvent (MONITOR priority).
      */
     public void recordDamage(UUID target, UUID attacker, double damage) {
-        if (damage <= 0) return;
+        // isFinite also rejects NaN, which "damage <= 0" lets through: one NaN record makes
+        // the whole distribution NaN, and NaN sorts as the largest share, so a real killer
+        // ends up last and takes the entire pot as the remainder.
+        if (!Double.isFinite(damage) || damage <= 0) return;
 
         damageHistory.computeIfAbsent(target, k -> Collections.synchronizedList(new ArrayList<>()))
                 .add(new DamageRecord(attacker, damage, System.currentTimeMillis()));

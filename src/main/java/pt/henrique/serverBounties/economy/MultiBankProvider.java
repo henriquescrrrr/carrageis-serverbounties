@@ -1,5 +1,6 @@
 package pt.henrique.serverbounties.economy;
 
+import org.bukkit.Bukkit;
 import pt.henrique.serverbounties.ServerBounties;
 
 import java.lang.reflect.Method;
@@ -9,7 +10,13 @@ import java.util.concurrent.CompletableFuture;
 /**
  * Economy provider for MultiBank.
  * Uses reflection to avoid hard dependency on MultiBank classes.
- * Hooks into: pt.henrique.multibank.api.MultiBankApi
+ * Hooks into pt.henrique.multibank.api.MultiBankApi, published by MultiBank in the
+ * Bukkit ServicesManager.
+ * <p>
+ * API flow: {@code getPrimaryAccount(UUID)} → {@code Account.getAccountId()} → the
+ * balance and transfer calls, which are keyed by account ID and denominated in cents.
+ * Both {@code withdraw} and {@code deposit} answer with a {@code TransactionResult}
+ * whose {@code isSuccess()} carries the outcome.
  */
 public final class MultiBankProvider implements EconomyProvider {
 
@@ -22,6 +29,7 @@ public final class MultiBankProvider implements EconomyProvider {
     private Method getBalanceCentsMethod;
     private Method withdrawMethod;
     private Method depositMethod;
+    private Method isSuccessMethod;
 
     public MultiBankProvider(ServerBounties plugin) {
         this.plugin = plugin;
@@ -31,23 +39,36 @@ public final class MultiBankProvider implements EconomyProvider {
 
     private void init() {
         try {
-            Class<?> apiClass = Class.forName("pt.henrique.multibank.api.MultiBankApi");
-            Method getInstanceMethod = apiClass.getMethod("getInstance");
-            this.apiFacade = getInstanceMethod.invoke(null);
+            if (Bukkit.getPluginManager().getPlugin("MultiBank") == null) {
+                plugin.debug("MultiBank not installed.");
+                return;
+            }
 
-            // MultiBankApi.getPrimaryAccount(UUID) → returns CompletableFuture<Account>
+            Class<?> apiClass = Class.forName("pt.henrique.multibank.api.MultiBankApi");
+            var registration = Bukkit.getServicesManager().getRegistration(apiClass);
+            if (registration == null || registration.getProvider() == null) {
+                plugin.debug("MultiBank API not registered in ServicesManager.");
+                return;
+            }
+            this.apiFacade = registration.getProvider();
+
+            // MultiBankApi.getPrimaryAccount(UUID) → CompletableFuture<Account>
             this.getPrimaryAccountMethod = apiClass.getMethod("getPrimaryAccount", UUID.class);
 
-            // Account.getAccountId() → returns some ID (String or long)
-            Class<?> accountClass = Class.forName("pt.henrique.multibank.api.Account");
+            // Account.getAccountId() → String
+            Class<?> accountClass = Class.forName("pt.henrique.multibank.model.Account");
             this.getAccountIdMethod = accountClass.getMethod("getAccountId");
-            this.getBalanceCentsMethod = accountClass.getMethod("getBalanceCents");
 
-            // MultiBankApi.withdraw(accountId, long cents, String reason, UUID actor) → CompletableFuture<Boolean>
-            // Determine account ID type from return type of getAccountId
-            Class<?> accountIdType = getAccountIdMethod.getReturnType();
-            this.withdrawMethod = apiClass.getMethod("withdraw", accountIdType, long.class, String.class, UUID.class);
-            this.depositMethod = apiClass.getMethod("deposit", accountIdType, long.class, String.class, UUID.class);
+            // MultiBankApi.getBalanceCents(String accountId) → CompletableFuture<Long>
+            this.getBalanceCentsMethod = apiClass.getMethod("getBalanceCents", String.class);
+
+            // MultiBankApi.withdraw/deposit(String accountId, long cents, String reason, UUID actor)
+            //   → CompletableFuture<TransactionResult>
+            this.withdrawMethod = apiClass.getMethod("withdraw", String.class, long.class, String.class, UUID.class);
+            this.depositMethod = apiClass.getMethod("deposit", String.class, long.class, String.class, UUID.class);
+
+            Class<?> resultClass = Class.forName("pt.henrique.multibank.economy.TransactionResult");
+            this.isSuccessMethod = resultClass.getMethod("isSuccess");
 
             this.available = true;
             plugin.debug("MultiBankProvider initialized successfully.");
@@ -72,90 +93,81 @@ public final class MultiBankProvider implements EconomyProvider {
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public CompletableFuture<Long> getBalanceCents(UUID playerUuid) {
         if (!available) return CompletableFuture.completedFuture(0L);
 
-        try {
-            CompletableFuture<Object> accountFuture =
-                    (CompletableFuture<Object>) getPrimaryAccountMethod.invoke(apiFacade, playerUuid);
-
-            return accountFuture.thenApply(account -> {
-                try {
-                    if (account == null) return 0L;
-                    Object balance = getBalanceCentsMethod.invoke(account);
-                    return ((Number) balance).longValue();
-                } catch (Exception e) {
-                    plugin.getLogger().warning("MultiBankProvider: Error getting balance: " + e.getMessage());
-                    return 0L;
-                }
-            }).exceptionally(ex -> {
-                plugin.getLogger().warning("MultiBankProvider: Error getting balance: " + ex.getMessage());
-                return 0L;
-            });
-        } catch (Exception e) {
-            plugin.getLogger().warning("MultiBankProvider: Error invoking getBalanceCents: " + e.getMessage());
-            return CompletableFuture.completedFuture(0L);
-        }
+        return resolveAccountId(playerUuid).thenCompose(accountId -> {
+            if (accountId == null) return CompletableFuture.completedFuture(0L);
+            try {
+                @SuppressWarnings("unchecked")
+                CompletableFuture<Long> balanceFuture =
+                        (CompletableFuture<Long>) getBalanceCentsMethod.invoke(apiFacade, accountId);
+                return balanceFuture.thenApply(cents -> cents == null ? 0L : cents);
+            } catch (Exception e) {
+                plugin.getLogger().warning("MultiBankProvider: Error getting balance: " + e.getMessage());
+                return CompletableFuture.completedFuture(0L);
+            }
+        }).exceptionally(ex -> {
+            plugin.getLogger().warning("MultiBankProvider: Error getting balance: " + ex.getMessage());
+            return 0L;
+        });
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public CompletableFuture<Boolean> withdraw(UUID playerUuid, long amountCents, String reason) {
         if (!available) return CompletableFuture.completedFuture(false);
-
-        try {
-            CompletableFuture<Object> accountFuture =
-                    (CompletableFuture<Object>) getPrimaryAccountMethod.invoke(apiFacade, playerUuid);
-
-            return accountFuture.thenCompose(account -> {
-                try {
-                    if (account == null) return CompletableFuture.completedFuture(false);
-                    Object accountId = getAccountIdMethod.invoke(account);
-                    CompletableFuture<Boolean> result =
-                            (CompletableFuture<Boolean>) withdrawMethod.invoke(apiFacade, accountId, amountCents, reason, playerUuid);
-                    return result;
-                } catch (Exception e) {
-                    plugin.getLogger().warning("MultiBankProvider: Error withdrawing: " + e.getMessage());
-                    return CompletableFuture.completedFuture(false);
-                }
-            }).exceptionally(ex -> {
-                plugin.getLogger().warning("MultiBankProvider: Error withdrawing: " + ex.getMessage());
-                return false;
-            });
-        } catch (Exception e) {
-            plugin.getLogger().warning("MultiBankProvider: Error invoking withdraw: " + e.getMessage());
-            return CompletableFuture.completedFuture(false);
-        }
+        return transact(withdrawMethod, "withdrawing", playerUuid, amountCents, reason);
     }
 
     @Override
-    @SuppressWarnings("unchecked")
     public CompletableFuture<Boolean> deposit(UUID playerUuid, long amountCents, String reason) {
         if (!available) return CompletableFuture.completedFuture(false);
+        return transact(depositMethod, "depositing", playerUuid, amountCents, reason);
+    }
 
+    private CompletableFuture<Boolean> transact(Method operation, String description,
+                                                UUID playerUuid, long amountCents, String reason) {
+        return resolveAccountId(playerUuid).thenCompose(accountId -> {
+            if (accountId == null) return CompletableFuture.completedFuture(false);
+            try {
+                CompletableFuture<?> resultFuture = (CompletableFuture<?>)
+                        operation.invoke(apiFacade, accountId, amountCents, reason, playerUuid);
+                return resultFuture.thenApply(result -> {
+                    try {
+                        return result != null && (boolean) isSuccessMethod.invoke(result);
+                    } catch (Exception e) {
+                        plugin.getLogger().warning("MultiBankProvider: Error " + description + ": " + e.getMessage());
+                        return false;
+                    }
+                });
+            } catch (Exception e) {
+                plugin.getLogger().warning("MultiBankProvider: Error " + description + ": " + e.getMessage());
+                return CompletableFuture.completedFuture(false);
+            }
+        }).exceptionally(ex -> {
+            plugin.getLogger().warning("MultiBankProvider: Error " + description + ": " + ex.getMessage());
+            return false;
+        });
+    }
+
+    /**
+     * Resolves the player's primary account ID, or null when they have no account.
+     */
+    private CompletableFuture<String> resolveAccountId(UUID playerUuid) {
         try {
+            @SuppressWarnings("unchecked")
             CompletableFuture<Object> accountFuture =
                     (CompletableFuture<Object>) getPrimaryAccountMethod.invoke(apiFacade, playerUuid);
-
-            return accountFuture.thenCompose(account -> {
+            return accountFuture.thenApply(account -> {
+                if (account == null) return null;
                 try {
-                    if (account == null) return CompletableFuture.completedFuture(false);
-                    Object accountId = getAccountIdMethod.invoke(account);
-                    CompletableFuture<Boolean> result =
-                            (CompletableFuture<Boolean>) depositMethod.invoke(apiFacade, accountId, amountCents, reason, playerUuid);
-                    return result;
+                    return (String) getAccountIdMethod.invoke(account);
                 } catch (Exception e) {
-                    plugin.getLogger().warning("MultiBankProvider: Error depositing: " + e.getMessage());
-                    return CompletableFuture.completedFuture(false);
+                    return null;
                 }
-            }).exceptionally(ex -> {
-                plugin.getLogger().warning("MultiBankProvider: Error depositing: " + ex.getMessage());
-                return false;
-            });
+            }).exceptionally(ex -> null);
         } catch (Exception e) {
-            plugin.getLogger().warning("MultiBankProvider: Error invoking deposit: " + e.getMessage());
-            return CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(null);
         }
     }
 

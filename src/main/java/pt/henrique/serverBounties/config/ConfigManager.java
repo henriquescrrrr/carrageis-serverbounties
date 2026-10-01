@@ -90,7 +90,11 @@ public final class ConfigManager {
         this.minAmount = cfg.getLong("bounty.min-amount", 500);
         this.maxAmountPerContribution = cfg.getLong("bounty.max-amount-per-contribution", 1_000_000);
         this.maxTotalPerTarget = cfg.getLong("bounty.max-total-per-target", 10_000_000);
-        this.taxRate = cfg.getDouble("bounty.tax-rate", 0.10);
+        // A negative tax rate would make totalCost < amountCents: the contributor is charged
+        // less than the bounty that gets escrowed, so every placement mints the difference.
+        // NaN would silently drop the tax to zero via Math.round.
+        double rawTaxRate = cfg.getDouble("bounty.tax-rate", 0.10);
+        this.taxRate = Double.isFinite(rawTaxRate) ? Math.max(0.0, rawTaxRate) : 0.10;
         this.allowOfflineTargets = cfg.getBoolean("bounty.allow-offline-targets", false);
         this.broadcastThreshold = cfg.getLong("bounty.broadcast-threshold", 5000);
         this.allowSameFaction = cfg.getBoolean("bounty.allow-same-faction", false);
@@ -123,7 +127,10 @@ public final class ConfigManager {
         // Hitman
         this.staleNegotiationHours = cfg.getInt("hitman.stale-negotiation-hours", 24);
         this.anonymousBroadcast = cfg.getBoolean("hitman.anonymous-broadcast", true);
-        this.hitmanKilledClientPercent = cfg.getInt("hitman.hitman-killed-client-percent", 85);
+        // Clamped like the rescission percentage: outside [0,100] one of the two shares of
+        // the escrowed contract value goes negative and is handed to a deposit call.
+        this.hitmanKilledClientPercent =
+                Math.max(0, Math.min(100, cfg.getInt("hitman.hitman-killed-client-percent", 85)));
         this.defaultHitmanMinPrice = cfg.getLong("hitman.defaults.min-price", 100000);
         this.defaultHitmanMinHours = cfg.getInt("hitman.defaults.min-hours", 1);
         this.defaultHitmanMaxHours = cfg.getInt("hitman.defaults.max-hours", 168);
